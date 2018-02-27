@@ -1,0 +1,255 @@
+---
+title: "Yelp Review Frequency"
+author: "Maxwell Peterson"
+output: pdf_document
+bibliography: yelp.bib
+---
+
+# When do people post Yelp reviews?
+
+```{r include = FALSE, echo = FALSE}
+NMIN_TO_COUNT <- 100
+knitr::opts_chunk$set(fig.width = 30, fig.height = 18)
+source("../Rmd/display_settings.R")
+```
+
+The number of reviews posted to Yelp per day is a proxy to
+a number of interesting questions. Is Yelp usage still growing? What days of
+the week do people visit restaurants? Do people go out on holidays (or: are
+restaurants open on holidays?)?
+
+## Input Data
+Input data is a subset of Yelp data. Data was provided for 11 metropolitan areas.
+Dates range from `r fmt_text_date(min_date)` to
+`r fmt_text_date(max_date)`. We examine trends at the state and province level
+(from here-on just "states"). Input data contains reviews from
+`r .number_of_states` states, but not all states saw enough Yelp activity to
+say interesting things about; just
+`r .count_n_above(.all_time_reviews_by_state, NMIN_TO_COUNT)`
+had more than `r NMIN_TO_COUNT` reviews all-time. If this seems low, note that
+the publicly-available data is only a small subset of Yelp's data, and than
+some very small "states" are likely just incorrectly marked (e.g. state "01")
+
+Part of our objective will be to forecast future review counts. So we'll
+keep only those states that have a decent amount of activity in the recent past.
+Specifically, we only analyze states with `r MIN_REVIEWS_IN_YEAR` or more
+reviews in the year `r YEAR`.  These are:
+```{r include = TRUE, echo = FALSE, results = "asis"}
+.states_to_use_counts %>%
+  xtable::xtable(align = "llr") %>%
+  print(type = "latex", include.rownames = FALSE, comment = FALSE)
+```
+
+Going forward, we only use these states.
+
+\pagebreak
+      	
+### Reviews Per Day
+Reviews per day per state all-time activity.
+Note that each y axis is different.
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.daily_review_counts_plot + pdf_gg_facet_theme
+```
+
+Observe:
+	
+* There is an upward trend in most states.
+  
+    This makes sense -- Yelp was founded
+    in 2004. More people learned of the site over time and so reviews grew over time.
+    What's interesting is the states that *didn't* trend upward over the past 12 years:
+    Baden-Wurttemburg in Germany, and the Edinburg region in Scotland. A few
+    possible explanations:
+
+    + Competition
+    
+        Yelp did have a serious European competitor: Qype. In May 2012, Qype 
+        may have had as much as 5 times Yelp's traffic [@qype_traffic].
+	Yelp bought Qype 5 months later [@qype_merger], and the beginning of an
+	upward trend in Baden-Wurttemburg happens around the same time!
+	But it doesn't continue.
+
+* Large, infrequent spikes downward in reviews posted
+
+    This is most obvious in Arizona, but is the case in many states, including
+    the two Canadian provinces. These are probably the big winter holidays.
+
+* Infrequent high outliers
+
+    At least Illinois, Wisconsin, and Quebec have a few days with a very high
+    number of reviews.
+
+* South Carolina
+    South Carolina's utilization looks odd, but there are very few reviews
+    in the state.
+
+\pagebreak
+    
+#### Outliers
+There are outliers in the dataset. We'd like to know:
+
+* Did the single dramatic spikes upward in the two European countries occur
+  on the same day?
+
+* Do the yearly dips in AZ, PA OH, WI, and more fall on Christmas, or
+  Thanksgiving?
+
+To answer these questions, any rough definition of outliers will do.
+We just need a scheme that picks up the outliers obvious to the eye, 
+and that doesn't pick up too many days.
+We landed on taking those days that were 4 or more standard deviations from
+the yearly-detrended mean. In other words: we removed the upward trend from
+each state, then took the points that were unusually far away from the average.
+Then graphically, the average is the horizontal white line and the
+outliers are the red triangles:
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.daily_review_counts_plot_w_outliers + pdf_gg_facet_theme +
+    guides(color = FALSE, shape = FALSE)
+```
+
+##### Did a spike in usage occur in two European states at the same time?
+	
+The far-away view suggests that the Baden-Wurttemburg outlier spike
+and the Edinburg spike may fall on the same days. But closer examination
+is less exciting; below, we mark each outlier day with a black dot, and leave
+non-outlier days blank. The spikes we are interested occur between 2008 and
+2010, so only those years are included.
+
+```{r include = TRUE, echo = FALSE, dpi = 70, fig.height = 1.2, fig.width = 5.7}
+.european_outliers_plot + theme(axis.title.y = element_blank(),
+                                axis.text.y = element_text(size = 12),
+                                axis.text.x = element_text(size = 12,
+                                                           angle = 90))
+```
+
+Though the outlier  days sometimes overlap for the two regions,
+the patterns are less similar than the red-triangled outlier plot suggested. So
+there's not much here. Let's move on.  
+
+\pagebreak
+	
+##### Are holidays causing the infrequent downward jumps in some states?
+
+Given a holiday H, we consider H, the day before H, and the day after to be
+the same holiday, and name them all H.
+Then the counts of holidays that are also outlier days are as follows:
+```{r include = TRUE, echo = FALSE, results = "asis"}
+.outlier_holidays %>%
+    xtable::xtable(align = "lrcl") %>%
+    print(type = "latex", include.rownames = FALSE, comment = FALSE)
+```
+
+So Thanksgiving and Christmas do often correspond to the low days. This
+is reasonable; people probably go to restaurants less on these big family-oriented
+holidays. This also suggests we should include these holidays in any forecasting we do.  
+
+There are some good strange cases here, too; Quebec's apparent celebration of
+Independence Day is especially charming.
+
+\pagebreak
+
+#### Forecasting future reviews-per-day
+
+Auto-fitting a timeseries model to each state using default settings
+(and denying holidays any special treatment) gives the following fits 
+to the data. We also include a forecast for one year past
+the final data point:
+    
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.reviews_facets + pdf_gg_facet_theme
+```  
+
+The upward trends are captured nicely, and the within-year variation
+also looks good. This fit can be used to predict, but also provides a clearer
+picture of the different trends over time. The fitted line allows us
+to observe:
+
+* Almost all states have their highest yearly yelp review activity 
+  in the middle of the year.
+
+* Arizona exhibits a strange step-like behavior in its upward trend.
+
+* The year-of-year acceleration in reviews has leveled off in the past
+  few years: Nevada, Pennsylvania, Ohio, and especially Wisconsin and Ontario
+  appear to perhaps be going level (though the increasing spread in the data
+  in recent years in some states [esp. Ontario] complicates this conclusion).
+
+\pagebreak
+
+##### Marking holidays
+We discovered in a previous section that a lot of outliers coincide with
+holidays. Treating holidays specially may improve the forecast. Fitting the
+same model as above, but including the holidays from the previous section,
+results in the following in-sample fit (zoomed-in to 2017 for better resolution).
+Holidays are marked with points (recall that we consider the 3-day area 
+around a holiday to all be holidays).
+
+```{r include = TRUE, echo = FALSE, dpi = 70}
+.holiday_vs_non_forecast_plot + pdf_gg_facet_theme
+```  
+
+So marking holidays has induced the fit to dive and arc aggressively for
+holidays on which there were extreme values; but at the same time, no
+dives or arcs are made for days marked holidays that had values in
+normal ranges. So our strategy of marking a slew of holidays, even ones that
+do not commonly coincide with extreme values, did not hurt the model's ability
+to discriminate between (in-sample) true extreme holidays and 
+technically-holidays-but-pretty-normal days.
+
+\pagebreak
+
+##### Choosing a model
+
+The in-sample twelve-year view suggests that our fits are smart
+and reasonable. But so far we've only seen fits on in-sample data.
+We now examine out-of-sample error. As before, we fit models with and without
+holidays, but this time the models are trained only up to the end
+of 2016. Then we forecast 2017.
+
+```{r include = TRUE, echo = FALSE, dpi = 50}
+.out_of_sample_year_plot + pdf_gg_facet_theme
+```
+
+So although the fits are reasonable, we also get a decent amount of
+error day-to-day. We also see that, for all our holiday considerations
+in previous sections, the model actually declines to dive and arc as it
+did on the in-sample holidays, and the two models are almost identical!
+So we go on to report accuracy measures on the with-marked-holidays model, but
+we would do just as well with the holiday-agnostic model. Finally, we notice
+that though the direction and acceleration of the year-to-year upward trends
+are nicely captured, forecasts often fail to cut through the middle of the
+points, instead tending to over-forecast most days.
+
+##### Accuracy
+The average *daily* percentage error per state for this 365-day forecast
+on 2017 is as follows:
+
+```{r include = TRUE, echo = FALSE, results = "asis"}
+.error_table %>%
+    xtable::xtable(align = "lccc") %>%
+    print(type = "latex", include.rownames = FALSE, comment = FALSE)
+```
+
+* The interpretation of Avg daily % error is:
+  If we forecasted the reviews
+  for every day in 2017 for, e.g., North Carolia, the forecasted value for
+  a given day would be, on average, 14% off the mark.
+
+* The interpretation of the sum-of-year percentage error is:
+  If, at the end of 2016, we had forecasted the total-reviews-in-year
+  for 2017 for, e.g., North Carolia, the forecasted year total would have been
+  0.7% below the actual total.
+
+Some states see impressive sum-of-year accuracies; others see impressive average
+daily accuracy. Whether any state model is sufficiently accurate
+must be considered in the context of what the important accuracy measure is.
+
+Depending on the application, forecasts can be made on horizons much shorter
+than 365 days, and will be more accurate the shorter the horizon. But
+yearly forecasts have their place too. For example, if Yelp were considering
+how many more servers to buy in a state, a yearly forecast of total reviews
+can inform the decision (though modeling traffic per day would be better).
+
+*****
